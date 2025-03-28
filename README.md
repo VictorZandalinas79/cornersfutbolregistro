@@ -11,9 +11,6 @@ Aplicación web desarrollada con Streamlit para registrar y analizar el posicion
 - Análisis individual por jugador
 - Estadísticas de efectividad
 
-## Instalación
+## Puesta en marcha
 
-1. Clona el repositorio:
-```bash
-git clone https://github.com/tuusuario/corners_app.git
-cd corners_app
+- streamlit run app.py
