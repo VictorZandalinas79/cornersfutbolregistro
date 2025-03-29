@@ -47,3 +47,35 @@ def execute_query(query, params=(), fetch_one=False, as_dict=True):
         return result
     finally:
         conn.close()
+
+def add_columns_to_corners_table():
+    """
+    Añade las columnas zona_caida y punto_caida a la tabla corners
+    si aún no existen.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Verificar si las columnas ya existen
+        cursor.execute("PRAGMA table_info(corners)")
+        columns = cursor.fetchall()
+        column_names = [col[1] for col in columns]
+        
+        # Añadir columna zona_caida si no existe
+        if 'zona_caida' not in column_names:
+            cursor.execute("ALTER TABLE corners ADD COLUMN zona_caida TEXT")
+            
+        # Añadir columna punto_caida si no existe
+        if 'punto_caida' not in column_names:
+            cursor.execute("ALTER TABLE corners ADD COLUMN punto_caida TEXT")
+            
+        # Guardar los cambios
+        conn.commit()
+        return True, "Columnas añadidas correctamente"
+        
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Error al modificar la base de datos: {e}"
+    finally:
+        conn.close()
