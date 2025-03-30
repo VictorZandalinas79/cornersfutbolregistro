@@ -4,3 +4,4 @@ numpy==1.26.3
 pandas==2.1.4
 pillow==10.2.0
 streamlit-image-coordinates>=0.2.1
+seaborn==0.12.2
