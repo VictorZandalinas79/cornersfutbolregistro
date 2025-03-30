@@ -65,13 +65,33 @@ def verificar_columnas_corners():
         """)
         return True, True
     except:
-        return False, False
+        # Intentar añadir las columnas si no existen
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Verificar si las columnas ya existen
+            cursor.execute("PRAGMA table_info(corners)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            # Añadir columna zona_caida si no existe
+            if 'zona_caida' not in columns:
+                cursor.execute("ALTER TABLE corners ADD COLUMN zona_caida TEXT")
+            
+            # Añadir columna punto_caida si no existe
+            if 'punto_caida' not in columns:
+                cursor.execute("ALTER TABLE corners ADD COLUMN punto_caida TEXT")
+            
+            conn.commit()
+            return True, True
+        except Exception as e:
+            st.error(f"Error al añadir columnas: {e}")
+            conn.rollback()
+            return False, False
+        finally:
+            conn.close()
 
-# Verificar si las columnas existen (sin mostrar errores)
-try:
-    has_zona_caida, has_punto_caida = verificar_columnas_corners()
-except:
-    has_zona_caida, has_punto_caida = False, False
+# Ejecutar verificación de estructura de tabla
+has_zona_caida, has_punto_caida = verificar_columnas_corners()
 
 # Mostrar mensaje si las columnas no existen
 if not has_zona_caida or not has_punto_caida:
@@ -148,26 +168,26 @@ def get_zonas_referencia(tipo_corner):
     if tipo_corner == "Derecha":
         # Corner desde la derecha (viendo hacia la portería)
         return {
-            "Segundo Palo": (35, 15),           # Primer palo (más cercano al corner)
-            "Centro Área Pequeña": (50, 15),   # Centro del área pequeña
-            "Primer Palo": (65, 15),          # Segundo palo (más alejado del corner)
-            "Frontal Palo Cercano": (35, 30),  # Frontal cerca del primer palo (cercano al lanzamiento)
-            "Frontal Centro": (50, 30),        # Frontal centro
-            "Frontal Palo Lejano": (65, 30),   # Frontal cerca del segundo palo (lejano al lanzamiento)
-            "Zona de Rechace": (50, 45),       # Zona de rechace
-            "Zona en Corto": (80, 20)          # Zona en corto (derecha)
+            "Primer Palo": (65, 15),         # Primer palo (más alejado del corner)
+            "Centro Área Pequeña": (50, 15), # Centro del área pequeña
+            "Segundo Palo": (35, 15),        # Segundo palo (más cercano al corner)
+            "Frontal Palo Cercano": (35, 30), # Frontal cerca del segundo palo (cercano al lanzamiento)
+            "Frontal Centro": (50, 30),      # Frontal centro
+            "Frontal Palo Lejano": (65, 30), # Frontal cerca del primer palo (lejano al lanzamiento)
+            "Zona de Rechace": (50, 45),     # Zona de rechace
+            "Zona en Corto": (80, 20)        # Zona en corto (derecha)
         }
     else:  # "Izquierda"
         # Corner desde la izquierda (viendo hacia la portería)
         return {
-            "Segundo Palo": (35, 15),           # Primer palo (más cercano al corner)
-            "Centro Área Pequeña": (50, 15),   # Centro del área pequeña
-            "Primer Palo": (65, 15),          # Segundo palo (más alejado del corner)
-            "Frontal Palo Cercano": (35, 30),  # Frontal cerca del primer palo (cercano al lanzamiento)
-            "Frontal Centro": (50, 30),        # Frontal centro
-            "Frontal Palo Lejano": (65, 30),   # Frontal cerca del segundo palo (lejano al lanzamiento)
-            "Zona de Rechace": (50, 45),       # Zona de rechace
-            "Zona en Corto": (20, 20)          # Zona en corto (izquierda)
+            "Primer Palo": (35, 15),         # Primer palo (más alejado del corner)
+            "Centro Área Pequeña": (50, 15), # Centro del área pequeña
+            "Segundo Palo": (65, 15),        # Segundo palo (más cercano al corner)
+            "Frontal Palo Cercano": (65, 30), # Frontal cerca del segundo palo (cercano al lanzamiento)
+            "Frontal Centro": (50, 30),      # Frontal centro
+            "Frontal Palo Lejano": (35, 30), # Frontal cerca del primer palo (lejano al lanzamiento)
+            "Zona de Rechace": (50, 45),     # Zona de rechace
+            "Zona en Corto": (20, 20)        # Zona en corto (izquierda)
         }
 
 # Función para dibujar una flecha curva convexa entre dos puntos
@@ -340,7 +360,9 @@ def draw_field_with_trajectory(tipo_corner, punto_caida=None):
         # Si el punto original estaba fuera de los límites, mostrar un mensaje
         if safe_punto_caida != punto_caida:
             st.warning("El punto de caída ha sido ajustado para que esté dentro del campo.")
-            
+        
+        # IMPORTANTE: NO transformar las coordenadas, usarlas directamente
+        # La función draw_curved_arrow ya hace la transformación adecuada
         draw_curved_arrow(draw, punto_origen, safe_punto_caida, field_width, field_height)
         
         # Dibujar el punto de caída
@@ -352,22 +374,49 @@ def draw_field_with_trajectory(tipo_corner, punto_caida=None):
     
     return image
 
-# Sección para seleccionar el punto de caída
-st.markdown("### Trayectoria del Corner")
+# Sección para posicionamiento de jugadores y selección de punto de caída
+# CAMBIO: Ponemos todos los campogramas en una fila con 3 columnas
+st.markdown("### Configuración del Corner")
+col_tray, col_def, col_of = st.columns(3)
 
-# Obtener las zonas de referencia
-zonas_referencia = get_zonas_referencia(tipo_corner)
-
-# Mostrar campo con la flecha de trayectoria
-col_tray_img, col_tray_sel = st.columns([3, 1])
-
-with col_tray_img:
+# Primera columna: Trayectoria
+with col_tray:
+    st.subheader("Trayectoria del Corner")
+    
+    # Obtener las zonas de referencia
+    zonas_referencia = get_zonas_referencia(tipo_corner)
+    
     # Dibujar campo con trayectoria
     field_image_tray = draw_field_with_trajectory(tipo_corner, st.session_state.punto_caida)
-    st.image(field_image_tray, use_container_width=True, caption="Trayectoria del balón")
-
-# En la sección de selección de zona de caída (reemplaza este bloque):
-with col_tray_sel:
+    
+    # Checkbox para activar el modo de depuración
+    if st.checkbox("Mostrar todas las zonas de referencia"):
+        # Cargar imagen nuevamente para mostrar los puntos de referencia
+        try:
+            debug_image = Image.open('assets/mediocampo.jpg')
+        except FileNotFoundError:
+            debug_image = Image.new('RGB', (600, 400), (50, 200, 50))
+        
+        field_width, field_height = debug_image.size
+        draw = ImageDraw.Draw(debug_image)
+        
+        # Dibujar todas las zonas como puntos
+        zonas = get_zonas_referencia(tipo_corner)
+        for zona_nombre, coords in zonas.items():
+            x = int(coords[0] * field_width / 100)
+            y = int(coords[1] * field_height / 100)
+            # Dibujar círculo para la zona
+            circle_radius = 5
+            color_fill = (0, 255, 0)  # Verde
+            draw.ellipse((x-circle_radius, y-circle_radius, x+circle_radius, y+circle_radius), 
+                         fill=color_fill, outline=(0, 0, 0))
+            # Añadir etiqueta con el nombre de la zona
+            draw.text((x+10, y), zona_nombre, fill=(255, 255, 255))
+        
+        st.image(debug_image, use_container_width=True, caption="Visualización de todas las zonas")
+    else:
+        st.image(field_image_tray, use_container_width=True, caption="Trayectoria del balón")
+    
     # Selector de zona de referencia para el punto de caída
     zonas_options = [
         "Primer Palo", 
@@ -391,31 +440,30 @@ with col_tray_sel:
         st.session_state.punto_caida = zonas_referencia[zona_seleccionada]
         st.session_state.zona_caida_nombre = zona_seleccionada
         st.success(f"Trayectoria hacia: {zona_seleccionada}")
-        # No es necesario el st.rerun() aquí, lo haremos al final
     
-    # Botón para borrar la trayectoria - ahora con una key única
+    # Botón para borrar la trayectoria
     if st.button("Borrar trayectoria", key="borrar_trayectoria_btn"):
         st.session_state.punto_caida = None
         st.session_state.zona_caida_nombre = None
-        st.rerun()  # Este rerun es suficiente para actualizar la imagen
-
-# Controles de ajuste fino para el punto de caída
-with st.expander("Ajuste fino del punto de caída"):
-    col1, col2 = st.columns(2)
-    with col1:
-        ajuste_x = st.slider("Posición X", 0, 100, 
-                             int(st.session_state.punto_caida[0]) if st.session_state.punto_caida else 50, 
-                             1, key="ajuste_x_caida")
-    with col2:
-        ajuste_y = st.slider("Posición Y", 0, 100, 
-                             int(st.session_state.punto_caida[1]) if st.session_state.punto_caida else 30, 
-                             1, key="ajuste_y_caida")
-    
-    if st.button("Usar coordenadas personalizadas"):
-        st.session_state.punto_caida = (ajuste_x, ajuste_y)
-        st.session_state.zona_caida_nombre = "Personalizada"
-        st.success("Punto de caída ajustado manualmente")
         st.rerun()
+    
+    # Controles de ajuste fino para el punto de caída
+    with st.expander("Ajuste fino del punto de caída"):
+        col1, col2 = st.columns(2)
+        with col1:
+            ajuste_x = st.slider("Posición X", 0, 100, 
+                               int(st.session_state.punto_caida[0]) if st.session_state.punto_caida else 50, 
+                               1, key="ajuste_x_caida")
+        with col2:
+            ajuste_y = st.slider("Posición Y", 0, 100, 
+                               int(st.session_state.punto_caida[1]) if st.session_state.punto_caida else 30, 
+                               1, key="ajuste_y_caida")
+        
+        if st.button("Usar coordenadas personalizadas"):
+            st.session_state.punto_caida = (ajuste_x, ajuste_y)
+            st.session_state.zona_caida_nombre = "Personalizada"
+            st.success("Punto de caída ajustado manualmente")
+            st.rerun()
 
 # Función para dibujar un campo con las posiciones marcadas
 def draw_field_with_positions(positions, roles, color_map):
@@ -524,13 +572,7 @@ def create_position_selector(field_type, jugador_seleccionado, rol):
     
     return None
 
-# Layout para posicionamiento de jugadores
-st.markdown("### Posicionamiento de Jugadores")
-
-# Crear una fila con dos columnas para ambos equipos
-col_def, col_of = st.columns(2)
-
-# Sección para el posicionamiento defensivo
+# Segunda columna: Posicionamiento Defensivo
 with col_def:
     st.subheader(f"Defensivo ({equipo_defensivo[1]})")
 
@@ -604,7 +646,7 @@ with col_def:
             st.session_state.roles_defensivos = {}
             st.rerun()
 
-# Sección para el posicionamiento ofensivo
+# Tercera columna: Posicionamiento Ofensivo
 with col_of:
     st.subheader(f"Ofensivo ({equipo_atacante[1]})")
 
@@ -684,13 +726,11 @@ with col_of:
 st.markdown("---")
 st.markdown("### Gestión de Corners Registrados")
 
-# Reemplaza el bloque que comienza con "# Obtener corners registrados" con este código:
-
 # Obtener corners registrados
 try:
-    # Consulta básica sin las columnas adicionales
+    # Consulta con todas las columnas disponibles
     corners_registrados = execute_query("""
-        SELECT c.id, c.minuto, c.tipo, c.resultado, e.nombre as equipo
+        SELECT c.id, c.minuto, c.tipo, c.resultado, e.nombre as equipo, c.zona_caida, c.punto_caida
         FROM corners c
         JOIN equipos e ON c.equipo_id = e.id
         WHERE c.partido_id = ?
@@ -704,19 +744,21 @@ if corners_registrados:
     # Convertir tuplas a formato más fácil de usar
     corners_formateados = []
     for corner in corners_registrados:
-        # Asumiendo que el orden de los campos es: id, minuto, tipo, resultado, equipo
+        # Asumiendo que el orden de los campos es: id, minuto, tipo, resultado, equipo, zona_caida, punto_caida
         corner_dict = {
             'id': corner[0],
             'minuto': corner[1],
             'tipo': corner[2],
             'resultado': corner[3],
             'equipo': corner[4],
-            'zona_caida': "No registrada"  # Valor por defecto
+            'zona_caida': corner[5] if len(corner) > 5 and corner[5] else "No registrada",
+            'punto_caida': corner[6] if len(corner) > 6 and corner[6] else "No registrado"
         }
         
         # Añadir datos de zona de caída si existen en la sesión
-        if corner_dict['id'] in st.session_state.info_corners:
+        if corner_dict['zona_caida'] == "No registrada" and corner_dict['id'] in st.session_state.info_corners:
             corner_dict['zona_caida'] = st.session_state.info_corners[corner_dict['id']].get('zona_caida', "No registrada")
+            corner_dict['punto_caida'] = st.session_state.info_corners[corner_dict['id']].get('punto_caida', "No registrado")
         
         corners_formateados.append(corner_dict)
     
@@ -834,21 +876,30 @@ with col2:
             conn = get_db_connection()
             cursor = conn.cursor()
             try:
-                # Insertar el corner con los campos básicos
+                # Preparar punto de caída como cadena de texto (coordenadas separadas por coma)
+                punto_caida_str = f"{st.session_state.punto_caida[0]},{st.session_state.punto_caida[1]}"
+                
+                # Insertar el corner con todos los campos, incluidos zona_caida y punto_caida
                 cursor.execute("""
-                    INSERT INTO corners (partido_id, equipo_id, minuto, tipo, resultado)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (partido_id, equipo_atacante[0], minuto, tipo_corner, resultado))
+                    INSERT INTO corners (partido_id, equipo_id, minuto, tipo, resultado, zona_caida, punto_caida)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    partido_id, 
+                    equipo_atacante[0], 
+                    minuto, 
+                    tipo_corner, 
+                    resultado, 
+                    st.session_state.zona_caida_nombre,  # Guardar el nombre de la zona
+                    punto_caida_str  # Guardar las coordenadas como texto
+                ))
                 
                 corner_id = cursor.lastrowid
                 
-                # Guardar los datos adicionales en la sesión para usarlos después
-                if st.session_state.punto_caida and st.session_state.zona_caida_nombre:
-                    punto_caida_str = f"{st.session_state.punto_caida[0]},{st.session_state.punto_caida[1]}"
-                    st.session_state.info_corners[corner_id] = {
-                        'zona_caida': st.session_state.zona_caida_nombre,
-                        'punto_caida': punto_caida_str
-                    }
+                # Guardar los datos también en la sesión como respaldo
+                st.session_state.info_corners[corner_id] = {
+                    'zona_caida': st.session_state.zona_caida_nombre,
+                    'punto_caida': punto_caida_str
+                }
                 
                 # Insertar posiciones defensivas
                 for jug_id, (x, y) in st.session_state.posiciones_defensivas.items():

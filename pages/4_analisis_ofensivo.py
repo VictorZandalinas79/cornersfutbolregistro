@@ -11,6 +11,8 @@ import os
 from PIL import Image
 import matplotlib.image as mpimg
 import math
+import seaborn as sns
+from matplotlib.lines import Line2D
 
 # Verificar si el usuario está logueado
 if 'logged_in' not in st.session_state or not st.session_state.logged_in:
@@ -83,7 +85,7 @@ with col_equipo:
 conn = get_db_connection()
 corners = conn.execute("""
     SELECT c.id, p.fecha, e1.nombre as local, e2.nombre as visitante, c.minuto, c.tipo, c.resultado,
-           p.equipo_local_id, p.equipo_visitante_id
+           p.equipo_local_id, p.equipo_visitante_id, c.zona_caida, c.punto_caida
     FROM corners c
     JOIN partidos p ON c.partido_id = p.id
     JOIN equipos e1 ON p.equipo_local_id = e1.id
@@ -229,11 +231,49 @@ def create_field_plot():
     
     return fig, ax
 
+# Definir el punto de origen del corner basado en el tipo - igual que en registro_corners.py
+def get_punto_origen(tipo_corner):
+    if tipo_corner == "Derecha":
+        return (96, 6)  # Esquina derecha
+    else:  # "Izquierda"
+        return (4, 6)   # Esquina izquierda
+
+# Definir las zonas de referencia para el punto de caída - igual que en registro_corners.py
+def get_zonas_referencia(tipo_corner):
+    # Las zonas son: Primer Palo, Centro del Área Pequeña, Segundo Palo,
+    # Frontal Palo Cercano, Frontal Centro, Frontal Palo Lejano, 
+    # Zona de Rechace, Zona en Corto
+    
+    if tipo_corner == "Derecha":
+        # Corner desde la derecha (viendo hacia la portería)
+        return {
+            "Primer Palo": (65, 15),         # Primer palo (más alejado del corner)
+            "Centro Área Pequeña": (50, 15), # Centro del área pequeña
+            "Segundo Palo": (35, 15),        # Segundo palo (más cercano al corner)
+            "Frontal Palo Cercano": (35, 30), # Frontal cerca del segundo palo (cercano al lanzamiento)
+            "Frontal Centro": (50, 30),      # Frontal centro
+            "Frontal Palo Lejano": (65, 30), # Frontal cerca del primer palo (lejano al lanzamiento)
+            "Zona de Rechace": (50, 45),     # Zona de rechace
+            "Zona en Corto": (80, 20)        # Zona en corto (derecha)
+        }
+    else:  # "Izquierda"
+        # Corner desde la izquierda (viendo hacia la portería)
+        return {
+            "Primer Palo": (35, 15),         # Primer palo (más alejado del corner)
+            "Centro Área Pequeña": (50, 15), # Centro del área pequeña
+            "Segundo Palo": (65, 15),        # Segundo palo (más cercano al corner)
+            "Frontal Palo Cercano": (65, 30), # Frontal cerca del segundo palo (cercano al lanzamiento)
+            "Frontal Centro": (50, 30),      # Frontal centro
+            "Frontal Palo Lejano": (35, 30), # Frontal cerca del primer palo (lejano al lanzamiento)
+            "Zona de Rechace": (50, 45),     # Zona de rechace
+            "Zona en Corto": (20, 20)        # Zona en corto (izquierda)
+        }
+
 # Layout de dos filas y dos columnas
 # Primera fila: Estadísticas y Posicionamiento Promedio
 row1_col1, row1_col2 = st.columns(2)
 
-# Primera fila, primera columna: Estadísticas Generales
+# Primera fila, primera columna: Estadísticas Generales y Distribución de Zonas
 with row1_col1:
     st.subheader("Estadísticas Generales")
     
@@ -263,9 +303,6 @@ with row1_col1:
         fig.tight_layout()
         st.pyplot(fig)
         
-        # Agregar visualización de distribución de zonas
-        # Modificar la sección de "Distribución de Zonas de Caída" en row1_col1 con este código:
-
         # Agregar visualización de distribución de zonas
         st.subheader("Distribución de Zonas de Caída")
 
@@ -307,21 +344,8 @@ with row1_col1:
                 fig, ax = create_field_plot()
                 
                 # Definir los puntos de origen de los corners (coordenadas realistas)
-                origen_derecha = (100, 0)    # Esquina derecha (ajustado)
-                origen_izquierda = (0, 0)    # Esquina izquierda (ajustado)
-                
-                # Definir mejor los puntos destino de las zonas (coordenadas más realistas)
-                destinos = {
-                    "Primer Palo": (85, 15),
-                    "Centro Área Pequeña": (70, 15),
-                    "Segundo Palo": (55, 15),
-                    "Frontal Palo Cercano": (85, 30),
-                    "Frontal Centro": (70, 30),
-                    "Frontal Palo Lejano": (55, 30),
-                    "Zona de Rechace": (70, 45),
-                    "Zona en Corto": (90, 20) if equipo_id == equipo_local_id else (10, 20),
-                    "Personalizada": (70, 25)  # Valor predeterminado para zonas personalizadas
-                }
+                origen_derecha = get_punto_origen("Derecha")
+                origen_izquierda = get_punto_origen("Izquierda")
                 
                 # Contar por tipo de corner y zona
                 try:
@@ -353,8 +377,17 @@ with row1_col1:
                         cantidad = row['Cantidad']
                         porcentaje = (cantidad / total_corners * 100).round(1)
                         
+                        # Obtener puntos de origen y destino
                         origen = origen_derecha if tipo == 'Derecha' else origen_izquierda
-                        destino = destinos.get(zona, (70, 25))  # Usar el destino correspondiente o un valor predeterminado
+                        
+                        # Obtener las coordenadas del destino según la zona
+                        # Usamos las mismas zonas de referencia que en el registro
+                        zonas_ref = get_zonas_referencia(tipo)
+                        if zona in zonas_ref:
+                            destino = zonas_ref[zona]
+                        else:
+                            # Si la zona no está definida, usamos un valor predeterminado
+                            destino = (50, 30)
                         
                         # Transformar el eje Y para que sea coherente con la visualización
                         origen_transformado = (origen[0], 70 - origen[1])
@@ -375,7 +408,6 @@ with row1_col1:
                         )
                     
                     # Añadir leyenda
-                    from matplotlib.lines import Line2D
                     legend_elements = [
                         Line2D([0], [0], color='red', lw=2, label='Corners Derecha'),
                         Line2D([0], [0], color='blue', lw=2, label='Corners Izquierda')
@@ -401,94 +433,6 @@ with row1_col1:
                     st.info("No hay suficientes datos para mostrar la distribución por tipo y zona.")
             else:
                 st.info("No hay datos de zonas de caída registrados.")
-                
-            # Mejorar la visualización de puntos personalizados
-            try:
-                conn = get_db_connection()
-                puntos_personalizados = conn.execute("""
-                    SELECT punto_caida, tipo, resultado
-                    FROM corners
-                    WHERE equipo_id = ? 
-                    AND punto_caida IS NOT NULL 
-                    AND punto_caida != ''
-                    AND zona_caida = 'Personalizada'
-                """, (equipo_id,)).fetchall()
-                conn.close()
-                
-                if puntos_personalizados and len(puntos_personalizados) > 0:
-                    st.subheader("Puntos de caída personalizados")
-                    fig_personal, ax_personal = create_field_plot()
-                    
-                    # Contadores para leyenda
-                    marcadores = {'Gol': 0, 'Remate': 0, 'Otros': 0}
-                    
-                    for punto in puntos_personalizados:
-                        try:
-                            coords = punto[0].split(',')
-                            x = float(coords[0])
-                            y = float(coords[1])
-                            tipo = punto[1]
-                            resultado = punto[2]
-                            
-                            # Transformar la coordenada y
-                            y_transformada = 70 - y
-                            
-                            # Determinar color y marcador según resultado
-                            if resultado == 'Gol':
-                                color = 'green'
-                                marker = 'o'
-                                marcadores['Gol'] += 1
-                            elif resultado in ['Remate a puerta', 'Remate fuera']:
-                                color = 'red'
-                                marker = '^'
-                                marcadores['Remate'] += 1
-                            else:
-                                color = 'blue'
-                                marker = 's'
-                                marcadores['Otros'] += 1
-                            
-                            # Dibujar punto
-                            ax_personal.scatter(
-                                x, y_transformada, 
-                                color=color, 
-                                marker=marker, 
-                                s=100, 
-                                alpha=0.7,
-                                edgecolors='white'
-                            )
-                            
-                            # Añadir pequeño indicador del tipo de corner
-                            ax_personal.text(
-                                x, y_transformada-2, 
-                                tipo[0],  # Primera letra del tipo (D/I)
-                                ha='center', 
-                                va='center', 
-                                color='white',
-                                fontsize=8,
-                                bbox=dict(facecolor='black', alpha=0.5, boxstyle='circle,pad=0.1')
-                            )
-                        except Exception as e:
-                            continue  # Ignorar puntos mal formateados
-                    
-                    # Añadir leyenda solo para los marcadores usados
-                    legend_elements = []
-                    if marcadores['Gol'] > 0:
-                        legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, label='Gol'))
-                    if marcadores['Remate'] > 0:
-                        legend_elements.append(Line2D([0], [0], marker='^', color='w', markerfacecolor='red', markersize=10, label='Remate'))
-                    if marcadores['Otros'] > 0:
-                        legend_elements.append(Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', markersize=10, label='Otros'))
-                    
-                    if legend_elements:
-                        ax_personal.legend(handles=legend_elements, loc='upper right')
-                    
-                    ax_personal.set_title('Puntos de caída personalizados\n(Letra indica tipo: D=Derecha, I=Izquierda)')
-                    fig_personal.tight_layout()
-                    st.pyplot(fig_personal)
-            except Exception as e:
-                st.warning(f"No se pudieron cargar los puntos personalizados: {e}")
-        else:
-            st.info("La función de análisis de zonas de caída estará disponible después de registrar corners con información de trayectoria.")
 
 # Primera fila, segunda columna: Posicionamiento Promedio Ofensivo
 with row1_col2:
@@ -530,7 +474,6 @@ with row1_col2:
             ax.text(x_prom, y_transformada, str(numero), ha='center', va='center', color='black', fontweight='bold')
         
         # Leyenda
-        from matplotlib.lines import Line2D
         legend_elements = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor='purple', markersize=10, label='Lanzador'),
             Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=10, label='Rematador'),
@@ -546,60 +489,193 @@ with row1_col2:
         fig.tight_layout()
         st.pyplot(fig)
 
-# Segunda fila
-st.markdown("---")
-
-# Segunda fila, primera columna: Datos de Posicionamiento
-row2_col1, row2_col2 = st.columns(2)
-
-with row2_col1:
-    st.subheader("Datos de Posicionamiento")
-    if not posiciones:
-        st.warning("No hay datos de posicionamiento registrados.")
-    else:
-        posiciones_df = pd.DataFrame(posiciones, columns=['ID', 'Nombre', 'Número', 'Rol', 'X Promedio', 'Y Promedio', 'Frecuencia'])
-        st.dataframe(posiciones_df[['Nombre', 'Número', 'Rol', 'X Promedio', 'Y Promedio', 'Frecuencia']])
-
-# Segunda fila, segunda columna: Análisis por Jugador
-with row2_col2:
-    st.subheader(f"Análisis del Jugador: {jugador_seleccionado if jugadores else ''}")
-    
-    if not jugadores or jugador_id is None:
-        st.warning("No hay jugadores disponibles para analizar.")
-    else:
-        # Obtener datos de posicionamiento del jugador
-        conn = get_db_connection()
-        posiciones_jugador = conn.execute("""
-            SELECT c.id, p.fecha, e_rival.nombre as rival, c.minuto, c.tipo, c.resultado, pj.x, pj.y, pj.rol
-            FROM posiciones_jugadores pj
-            JOIN corners c ON pj.corner_id = c.id
-            JOIN partidos p ON c.partido_id = p.id
-            JOIN equipos e ON c.equipo_id = e.id
-            JOIN equipos e_rival ON (p.equipo_local_id = e_rival.id OR p.equipo_visitante_id = e_rival.id) AND e_rival.id != e.id
-            WHERE pj.jugador_id = ? AND pj.tipo = 'Ofensivo'
-            ORDER BY p.fecha DESC
-        """, (jugador_id,)).fetchall()
-        conn.close()
+        # Mostrar distribución de roles en formato de gráfico de barras
+        st.subheader("Distribución de Roles")
+        roles_df = pd.DataFrame([(p[3], p[6]) for p in posiciones], columns=['Rol', 'Frecuencia'])
+        roles_count = roles_df.groupby('Rol').sum().reset_index()
         
-        if not posiciones_jugador:
-            st.info(f"No hay datos de posicionamiento para {jugador_seleccionado}.")
-        else:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        colors = ['purple', 'orange', 'cyan', 'magenta', 'brown', 'gray']
+        sns.barplot(x='Rol', y='Frecuencia', data=roles_count, ax=ax, palette=colors)
+        plt.xticks(rotation=45, ha='right')
+        ax.set_ylabel('Cantidad')
+        ax.set_title('Frecuencia de Roles en Corners')
+        plt.tight_layout()
+        st.pyplot(fig)
+
+# Sección de visualización de puntos de caída específicos en una fila separada
+st.markdown("---")
+st.subheader("Puntos de caída registrados")
+try:
+    conn = get_db_connection()
+    # Consulta todos los puntos de caída registrados
+    puntos_de_caida = conn.execute("""
+        SELECT punto_caida, tipo, resultado, zona_caida
+        FROM corners
+        WHERE equipo_id = ? 
+        AND punto_caida IS NOT NULL 
+        AND punto_caida != ''
+    """, (equipo_id,)).fetchall()
+    conn.close()
+    
+    if puntos_de_caida and len(puntos_de_caida) > 0:
+        fig_puntos, ax_puntos = create_field_plot()
+        
+        # Contadores para leyenda y análisis
+        marcadores = {'Gol': 0, 'Remate': 0, 'Otros': 0}
+        zonas_encontradas = set()
+        puntos_procesados = 0
+        
+        for punto in puntos_de_caida:
+            try:
+                punto_caida, tipo, resultado, zona = punto
+                
+                # Verificar formato válido
+                if not punto_caida or ',' not in punto_caida:
+                    continue
+                    
+                coords = punto_caida.split(',')
+                if len(coords) != 2:
+                    continue
+                
+                try:
+                    x = float(coords[0])
+                    y = float(coords[1])
+                except ValueError:
+                    continue
+                
+                # Guardar la zona para análisis
+                zona_str = zona if zona else "No especificada"
+                zonas_encontradas.add(zona_str)
+                
+                # Transformar coordenada y
+                y_transformada = 70 - y
+                
+                # Colores según resultado
+                if resultado == 'Gol':
+                    color = 'green'
+                    marker = 'o'
+                    marcadores['Gol'] += 1
+                elif resultado in ['Remate a puerta', 'Remate fuera']:
+                    color = 'red'
+                    marker = '^'
+                    marcadores['Remate'] += 1
+                else:
+                    color = 'blue'
+                    marker = 's'
+                    marcadores['Otros'] += 1
+                
+                # Dibujar punto
+                ax_puntos.scatter(
+                    x, y_transformada, 
+                    color=color, 
+                    marker=marker, 
+                    s=100, 
+                    alpha=0.7,
+                    edgecolors='white'
+                )
+                
+                # Mostrar tipo y zona
+                texto = f"{tipo[0]}"
+                if zona:
+                    texto += f"-{zona[0]}"  # Agregar primera letra de la zona
+                    
+                ax_puntos.text(
+                    x, y_transformada-2, 
+                    texto,
+                    ha='center', 
+                    va='center', 
+                    color='white',
+                    fontsize=8,
+                    bbox=dict(facecolor='black', alpha=0.5, boxstyle='circle,pad=0.1')
+                )
+                
+                puntos_procesados += 1
+                
+            except Exception as e:
+                continue
+        
+        # Añadir leyenda
+        legend_elements = []
+        if marcadores['Gol'] > 0:
+            legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, label='Gol'))
+        if marcadores['Remate'] > 0:
+            legend_elements.append(Line2D([0], [0], marker='^', color='w', markerfacecolor='red', markersize=10, label='Remate'))
+        if marcadores['Otros'] > 0:
+            legend_elements.append(Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', markersize=10, label='Otros'))
+        
+        if legend_elements:
+            ax_puntos.legend(handles=legend_elements, loc='upper right')
+        
+        ax_puntos.set_title('Puntos de caída registrados\n(Letra indica tipo: D=Derecha, I=Izquierda + Zona)')
+        fig_puntos.tight_layout()
+        st.pyplot(fig_puntos)
+    else:
+        st.info("No hay datos de puntos de caída registrados.")
+except Exception as e:
+    st.error(f"Error al consultar o mostrar puntos de caída: {e}")
+
+# Segunda fila: Datos y Análisis específicos del Jugador
+st.markdown("---")
+st.header(f"Análisis del Jugador: {jugador_seleccionado if jugadores else ''}")
+
+if not jugadores or jugador_id is None:
+    st.warning("No hay jugadores disponibles para analizar.")
+else:
+    # Obtener datos completos de posicionamiento del jugador
+    conn = get_db_connection()
+    posiciones_jugador = conn.execute("""
+        SELECT c.id, p.fecha, e_rival.nombre as rival, c.minuto, c.tipo, c.resultado, pj.x, pj.y, pj.rol,
+               c.zona_caida, c.punto_caida
+        FROM posiciones_jugadores pj
+        JOIN corners c ON pj.corner_id = c.id
+        JOIN partidos p ON c.partido_id = p.id
+        JOIN equipos e ON c.equipo_id = e.id
+        JOIN equipos e_rival ON (p.equipo_local_id = e_rival.id OR p.equipo_visitante_id = e_rival.id) AND e_rival.id != e.id
+        WHERE pj.jugador_id = ? AND pj.tipo = 'Ofensivo'
+        ORDER BY p.fecha DESC
+    """, (jugador_id,)).fetchall()
+    conn.close()
+    
+    if not posiciones_jugador:
+        st.info(f"No hay datos de posicionamiento para {jugador_seleccionado}.")
+    else:
+        # Convertir los datos a un DataFrame para facilitar análisis
+        cols = ['corner_id', 'fecha', 'rival', 'minuto', 'tipo', 'resultado', 'x', 'y', 'rol', 'zona_caida', 'punto_caida']
+        df_jugador = pd.DataFrame(posiciones_jugador, columns=cols)
+        
+        # Crear layout de dos columnas para gráficos del jugador
+        col1_jugador, col2_jugador = st.columns(2)
+        
+        # Columna 1: Mapa de posiciones del jugador
+        with col1_jugador:
+            st.subheader("Posiciones en el Campo")
+            
             # Crear gráfico de posiciones del jugador usando la función con imagen de fondo
             fig, ax = create_field_plot()
             
             # Dibujar todas las posiciones del jugador
-            for pos in posiciones_jugador:
-                corner_id, fecha, rival, minuto, tipo, resultado, x, y, rol = pos
+            for _, row in df_jugador.iterrows():
                 # Transformar la coordenada y
-                y_transformada = 70 - y  # Invertir el eje Y
+                y_transformada = 70 - row['y']  # Invertir el eje Y
                 
-                color = 'green' if resultado == 'Gol' else 'red' if resultado in ['Remate a puerta', 'Remate fuera'] else 'blue'
-                marker = 'o' if resultado == 'Gol' else '^' if resultado in ['Remate a puerta', 'Remate fuera'] else 's'
+                # Colores según resultado
+                if row['resultado'] == 'Gol':
+                    color = 'green'
+                    marker = 'o'
+                elif row['resultado'] in ['Remate a puerta', 'Remate fuera']:
+                    color = 'red'
+                    marker = '^'
+                else:
+                    color = 'blue'
+                    marker = 's'
                 
-                ax.scatter(x, y_transformada, color=color, marker=marker, s=100, alpha=0.7)
+                ax.scatter(row['x'], y_transformada, color=color, marker=marker, s=100, alpha=0.7)
+                
+                # Añadir número de minuto al lado de cada punto
+                ax.text(row['x']+1, y_transformada, f"{row['minuto']}", fontsize=8)
             
             # Leyenda
-            from matplotlib.lines import Line2D
             legend_elements = [
                 Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, label='Gol'),
                 Line2D([0], [0], marker='^', color='w', markerfacecolor='red', markersize=10, label='Remate'),
@@ -611,11 +687,294 @@ with row2_col2:
             ax.set_title(f'Posiciones de {jugador_seleccionado} en Corners')
             fig.tight_layout()
             st.pyplot(fig)
-
-# Tabla de datos del jugador seleccionado
-if jugadores and jugador_id is not None and posiciones_jugador:
-    st.markdown("---")
-    st.subheader("Corners con participación del jugador:")
-    posiciones_df = pd.DataFrame(posiciones_jugador, 
-                               columns=['ID', 'Fecha', 'Rival', 'Minuto', 'Tipo', 'Resultado', 'X', 'Y', 'Rol'])
-    st.dataframe(posiciones_df[['Fecha', 'Rival', 'Minuto', 'Tipo', 'Resultado', 'Rol']])
+            
+            # Datos adicionales
+            st.markdown(f"**Total de corners jugados:** {len(df_jugador)}")
+            
+            # Estadísticas de éxito
+            goles = df_jugador[df_jugador['resultado'] == 'Gol'].shape[0]
+            remates = df_jugador[df_jugador['resultado'].isin(['Remate a puerta', 'Remate fuera'])].shape[0]
+            
+            st.markdown(f"**Goles:** {goles} ({(goles/len(df_jugador)*100):.1f}%)")
+            st.markdown(f"**Remates:** {remates} ({(remates/len(df_jugador)*100):.1f}%)")
+        
+        # Columna 2: Gráfico de distribución de roles y resultados
+        with col2_jugador:
+            st.subheader("Distribución de Roles")
+            
+            # Contar frecuencia de roles
+            roles_count = df_jugador['rol'].value_counts().reset_index()
+            roles_count.columns = ['Rol', 'Cantidad']
+            
+            # Crear gráfico de roles
+            fig, ax = plt.subplots(figsize=(8, 5))
+            
+            # Definir colores para roles específicos
+            colores_roles = {
+                'Lanzador': 'purple',
+                'Rematador': 'orange',
+                'Bloqueador': 'cyan',
+                'Arrastre': 'magenta',
+                'Rechace': 'brown',
+                'Atrás': 'gray'
+            }
+            
+            # Extraer colores en el orden de los roles del dataframe
+            colores = [colores_roles.get(rol, 'lightgray') for rol in roles_count['Rol']]
+            
+            # Crear gráfico de barras
+            ax.bar(roles_count['Rol'], roles_count['Cantidad'], color=colores)
+            ax.set_ylabel('Cantidad')
+            ax.set_title(f'Roles de {jugador_seleccionado.split(" - ")[1]} en Corners')
+            plt.xticks(rotation=45, ha='right')
+            fig.tight_layout()
+            st.pyplot(fig)
+            
+            # Gráfico de distribución de resultados
+            st.subheader("Resultados por Participación")
+            
+            # Contar frecuencia de resultados
+            resultados_count = df_jugador['resultado'].value_counts().reset_index()
+            resultados_count.columns = ['Resultado', 'Cantidad']
+            
+            fig, ax = plt.subplots(figsize=(8, 5))
+            # Definir colores para resultados
+            colores_resultados = {
+                'Gol': 'green',
+                'Remate a puerta': 'orange',
+                'Remate fuera': 'red',
+                'Despeje': 'gray',
+                'Falta atacante': 'brown',
+                'Falta defensiva': 'blue',
+                'Otro': 'lightgray'
+            }
+            
+            # Extraer colores en el orden de los resultados del dataframe
+            colores = [colores_resultados.get(res, 'lightgray') for res in resultados_count['Resultado']]
+            
+            # Crear gráfico de barras
+            ax.bar(resultados_count['Resultado'], resultados_count['Cantidad'], color=colores)
+            ax.set_ylabel('Cantidad')
+            ax.set_title(f'Resultados con {jugador_seleccionado.split(" - ")[1]} en el Campo')
+            plt.xticks(rotation=45, ha='right')
+            fig.tight_layout()
+            st.pyplot(fig)
+        
+        # Gráfico de mapa de calor para zonas frecuentes
+        if df_jugador.shape[0] >= 3:  # Solo si hay suficientes datos
+            st.subheader("Mapa de Calor de Posicionamiento")
+            
+            # Crear nueva figura
+            fig, ax = plt.subplots(figsize=(10, 7))
+            
+            # Intentar cargar la imagen de fondo
+            try:
+                field_img = mpimg.imread('assets/mediocampo.jpg')
+                ax.imshow(field_img, extent=[0, 100, 0, 70], aspect='auto', alpha=0.6)
+            except:
+                # Si falla, usar un fondo verde simple
+                ax.set_facecolor('#78A64B')  # Verde césped
+                
+            # Preparar los datos para el mapa de calor
+            x = df_jugador['x'].values
+            y = 70 - df_jugador['y'].values  # Invertir Y para coherencia
+            
+            # Generar un mapa de calor 2D usando kernel density estimation
+            if len(x) > 1:
+                sns.kdeplot(
+                    x=x, 
+                    y=y, 
+                    cmap="hot",
+                    fill=True,
+                    alpha=0.7,
+                    thresh=0,
+                    levels=10,
+                    ax=ax
+                )
+            
+            # Configuraciones adicionales
+            ax.set_xlim(0, 100)
+            ax.set_ylim(0, 70)
+            ax.set_title(f"Mapa de Calor: Zonas Frecuentes de {jugador_seleccionado.split(' - ')[1]}")
+            ax.axis('off')
+            fig.tight_layout()
+            st.pyplot(fig)
+            
+            # Columnas para análisis adicionales
+            col3_jugador, col4_jugador = st.columns(2)
+            
+            # En la columna 3: Análisis de efectividad contra rivales
+            with col3_jugador:
+                st.subheader("Efectividad contra Rivales")
+                
+                if len(df_jugador['rival'].unique()) > 1:
+                    # Agrupar por rival y resultado
+                    rival_results = df_jugador.groupby(['rival', 'resultado']).size().unstack(fill_value=0)
+                    
+                    # Calcular totales
+                    rival_results['Total'] = rival_results.sum(axis=1)
+                    
+                    # Calcular porcentaje de éxito (goles + remates)
+                    if 'Gol' in rival_results.columns:
+                        rival_results['Goles %'] = (rival_results['Gol'] / rival_results['Total'] * 100).round(1)
+                    else:
+                        rival_results['Goles %'] = 0
+                        
+                    # Crear columna para remates combinados si existen
+                    remates_cols = [col for col in rival_results.columns if 'Remate' in col]
+                    if remates_cols:
+                        rival_results['Remates'] = rival_results[remates_cols].sum(axis=1)
+                        rival_results['Remates %'] = (rival_results['Remates'] / rival_results['Total'] * 100).round(1)
+                    
+                    # Mostrar tabla de efectividad
+                    st.dataframe(rival_results)
+                    
+                    # Visualizar efectividad por rival
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    
+                    # Preparar datos para gráfico
+                    rivales = rival_results.index
+                    goles_pct = rival_results['Goles %'] if 'Goles %' in rival_results.columns else [0] * len(rivales)
+                    remates_pct = rival_results['Remates %'] if 'Remates %' in rival_results.columns else [0] * len(rivales)
+                    
+                    # Crear barras
+                    x = np.arange(len(rivales))
+                    width = 0.35
+                    
+                    ax.bar(x - width/2, goles_pct, width, label='% Goles', color='green')
+                    ax.bar(x + width/2, remates_pct, width, label='% Remates', color='orange')
+                    
+                    # Configurar eje X
+                    ax.set_xticks(x)
+                    ax.set_xticklabels(rivales, rotation=45, ha='right')
+                    
+                    # Añadir etiquetas y título
+                    ax.set_ylabel('Porcentaje %')
+                    ax.set_title(f'Efectividad contra Rivales')
+                    ax.legend()
+                    
+                    fig.tight_layout()
+                    st.pyplot(fig)
+                else:
+                    st.info("No hay suficientes rivales para mostrar comparativa.")
+            
+            # En la columna 4: Análisis de tendencias y combinaciones
+            with col4_jugador:
+                st.subheader("Tendencias de Rendimiento")
+                
+                # Ordenar los datos por fecha
+                df_chronological = df_jugador.sort_values('fecha')
+                
+                # Crear columna de resultado numérico para visualizar tendencia
+                result_value = {
+                    'Gol': 3,            # Valor más alto para goles
+                    'Remate a puerta': 2, # Valor medio para remates a puerta
+                    'Remate fuera': 1,   # Valor bajo para remates fuera
+                    'Despeje': 0,        # Valores neutros o negativos para otros resultados
+                    'Falta atacante': -1,
+                    'Falta defensiva': -1,
+                    'Otro': 0
+                }
+                
+                # Aplicar mapeo y crear columna numérica
+                df_chronological['valor_resultado'] = df_chronological['resultado'].map(
+                    lambda x: result_value.get(x, 0)
+                )
+                
+                # Crear índice ordenado para el eje X
+                df_chronological['indice'] = range(len(df_chronological))
+                
+                if len(df_chronological) > 1:
+                    # Graficar tendencia de rendimiento
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    
+                    # Graficar línea de tendencia
+                    ax.plot(df_chronological['indice'], df_chronological['valor_resultado'], 
+                            'o-', color='blue', alpha=0.7, label='Rendimiento')
+                    
+                    # Añadir línea de tendencia (media móvil) si hay suficientes datos
+                    if len(df_chronological) > 2:
+                        window = min(3, len(df_chronological))
+                        df_chronological['tendencia'] = df_chronological['valor_resultado'].rolling(window=window, center=True).mean()
+                        ax.plot(df_chronological['indice'], df_chronological['tendencia'], 
+                                '-', color='red', linewidth=2, label=f'Tendencia (media móvil {window})')
+                    
+                    # Configurar etiquetas del eje X
+                    xticks = df_chronological['indice']
+                    xticklabels = [f"{r['fecha']}" for _, r in df_chronological.iterrows()]
+                    
+                    if len(xticks) > 8:  # Si hay muchas fechas, mostrar solo algunas
+                        step = len(xticks) // 6
+                        xticks = xticks[::step]
+                        xticklabels = xticklabels[::step]
+                    
+                    ax.set_xticks(xticks)
+                    ax.set_xticklabels(xticklabels, rotation=45, ha='right')
+                    
+                    # Añadir línea horizontal en 0
+                    ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
+                    
+                    # Configurar límites y etiquetas
+                    ax.set_ylim(-1.5, 3.5)
+                    ax.set_ylabel('Rendimiento')
+                    ax.set_title(f'Evolución del Rendimiento')
+                    ax.legend()
+                    
+                    fig.tight_layout()
+                    st.pyplot(fig)
+                else:
+                    st.info("Se necesitan más participaciones para analizar tendencias.")
+                
+                # Análisis de combinaciones con otros jugadores
+                st.subheader("Combinaciones Efectivas")
+                
+                # Obtener datos de combinaciones con otros jugadores
+                conn = get_db_connection()
+                combinaciones = conn.execute("""
+                    SELECT j.nombre, j.numero, c.resultado, COUNT(*) as veces
+                    FROM posiciones_jugadores pj1
+                    JOIN corners c ON pj1.corner_id = c.id
+                    JOIN posiciones_jugadores pj2 ON pj1.corner_id = pj2.corner_id AND pj1.jugador_id != pj2.jugador_id
+                    JOIN jugadores j ON pj2.jugador_id = j.id
+                    WHERE pj1.jugador_id = ? AND pj1.tipo = 'Ofensivo' AND pj2.tipo = 'Ofensivo'
+                    GROUP BY j.id, c.resultado
+                    ORDER BY veces DESC
+                """, (jugador_id,)).fetchall()
+                conn.close()
+                
+                if combinaciones:
+                    # Crear DataFrame
+                    df_comb = pd.DataFrame(combinaciones, columns=['Jugador', 'Número', 'Resultado', 'Veces'])
+                    
+                    # Pivotear para obtener tabla de eficacia
+                    if len(df_comb) > 0:
+                        pivot_comb = df_comb.pivot_table(
+                            index=['Jugador', 'Número'],
+                            columns='Resultado',
+                            values='Veces',
+                            aggfunc='sum',
+                            fill_value=0
+                        ).reset_index()
+                        
+                        # Calcular totales
+                        pivot_comb['Total'] = pivot_comb.drop(['Jugador', 'Número'], axis=1).sum(axis=1)
+                        
+                        # Ordenar por total
+                        pivot_comb = pivot_comb.sort_values('Total', ascending=False)
+                        
+                        # Mostrar tabla de las 5 mejores combinaciones
+                        st.dataframe(pivot_comb.head(5))
+                    else:
+                        st.info("No hay datos suficientes sobre combinaciones con otros jugadores.")
+                else:
+                    st.info("No hay datos suficientes sobre combinaciones con otros jugadores.")
+                
+        # Tabla detallada de participación
+        st.subheader("Detalles de Participación")
+        
+        # Crear una versión formateada del DataFrame para mostrar
+        df_display = df_jugador[['fecha', 'rival', 'minuto', 'tipo', 'resultado', 'rol', 'zona_caida']]
+        df_display.columns = ['Fecha', 'Rival', 'Minuto', 'Tipo Corner', 'Resultado', 'Rol', 'Zona de Caída']
+        
+        # Mostrar los datos en una tabla interactiva
+        st.dataframe(df_display)
